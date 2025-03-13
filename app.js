@@ -149,14 +149,45 @@ app.get("/find-tv", async (req, res) => {
 });
 
 // 6️⃣ API gửi lệnh điều khiển
-app.post("/send-command", async (req, res) => {
-    const { command } = req.body;
-    if (!command) {
-        return res.status(400).json({ message: "Thiếu lệnh điều khiển!" });
+app.post("/control-tv", async (req, res) => {
+    const { ip, command, clientKey: requestClientKey } = req.body;
+    if (!ip || !command) return res.status(400).json({ error: "Thiếu IP hoặc command" });
+
+    // Ưu tiên dùng clientKey từ request, nếu không có thì dùng từ connectedTVs
+    const clientKey = requestClientKey || connectedTVs[ip];
+    console.log("CONTROL TV", ip, "Client Key:", clientKey);
+    
+    if (!clientKey) return res.status(400).json({ error: "Thiếu client key và TV chưa được ghép nối" });
+
+    const commands = {
+        volumeUp: 'ssap://audio/volumeUp',
+        volumeDown: 'ssap://audio/volumeDown',
+        powerOff: 'ssap://system/turnOff',
+        mute: 'ssap://audio/setMute',
+        channelUp: 'ssap://tv/channelUp',
+        channelDown: 'ssap://tv/channelDown'
+    };
+
+    if (!commands[command]) {
+        return res.status(400).json({ error: "Lệnh không hợp lệ" });
     }
 
-    await sendKeyCommand(command);
-    res.json({ message: `Đã gửi lệnh: ${command}` });
+    const ws = new WebSocket(`ws://${ip}:3000`);
+
+    ws.on("open", () => {
+        ws.send(JSON.stringify({
+            type: "request",
+            uri: commands[command],
+            payload: {},
+            clientKey: clientKey
+        }));
+        res.json({ message: "Lệnh đã gửi", command });
+        ws.close();
+    });
+
+    ws.on("error", (err) => {
+        res.status(500).json({ error: "Không thể gửi lệnh" });
+    });
 });
 
 // Chạy server
